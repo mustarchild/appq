@@ -8,6 +8,14 @@ from kivy.uix.progressbar import ProgressBar
 from kivy.uix.button import Button
 from kivy.uix.screenmanager import ScreenManager, Screen
 
+from jnius import autoclass
+import threading
+
+
+BluetoothAdapter = autoclass("android.bluetooth.BluetoothAdapter")
+BluetoothDevice = autoclass("android.bluetooth.BluetoothDevice")
+UUID = autoclass("java.util.UUID")
+
 
 # ================= DASHBOARD SCREEN =================
 class DashboardScreen(Screen):
@@ -19,7 +27,6 @@ class DashboardScreen(Screen):
             spacing=12
         )
 
-        # ---------- Top Bar ----------
         top_layout = BoxLayout(size_hint_y=None, height=90, spacing=15)
 
         menu_button = Button(
@@ -40,22 +47,10 @@ class DashboardScreen(Screen):
         top_layout.add_widget(title)
         main_layout.add_widget(top_layout)
 
-        # ---------- Pack Parameters ----------
         def create_param(label_text):
             layout = BoxLayout(size_hint_y=None, height=70, spacing=15)
-
-            label = Label(
-                text=label_text,
-                font_size=22,
-                bold=True
-            )
-
-            value = TextInput(
-                readonly=True,
-                font_size=30,
-                text="0.0"
-            )
-
+            label = Label(text=label_text, font_size=22, bold=True)
+            value = TextInput(readonly=True, font_size=30, text="0.0")
             layout.add_widget(label)
             layout.add_widget(value)
             main_layout.add_widget(layout)
@@ -66,12 +61,10 @@ class DashboardScreen(Screen):
         self.pack_temp = create_param("Temperature (°C)")
         self.pack_soc = create_param("State of Charge (%)")
 
-        # ---------- SOC Progress ----------
         self.soc_bar = ProgressBar(max=100, size_hint_y=None, height=35)
         self.soc_bar.value = 0
         main_layout.add_widget(self.soc_bar)
 
-        # ---------- Cell Voltages ----------
         cell_title = Label(
             text="Cell Voltages (16S)",
             font_size=30,
@@ -87,53 +80,48 @@ class DashboardScreen(Screen):
 
         for i in range(1, 17):
             cell_box = BoxLayout(size_hint_y=None, height=65, spacing=10)
-
-            label = Label(
-                text=f"Cell {i}",
-                font_size=20,
-                bold=True
-            )
-
-            value = TextInput(
-                readonly=True,
-                font_size=26,
-                text="0.000"
-            )
-
+            label = Label(text=f"Cell {i}", font_size=20, bold=True)
+            value = TextInput(readonly=True, font_size=26, text="0.000")
             cell_box.add_widget(label)
             cell_box.add_widget(value)
             grid.add_widget(cell_box)
             self.cell_inputs.append(value)
 
         main_layout.add_widget(grid)
-
-        # ✅ This pushes everything UP
         main_layout.add_widget(Label(size_hint_y=1))
 
         self.add_widget(main_layout)
 
-        # Update loop (real data can be placed here later)
-        Clock.schedule_interval(self.update_values, 1)
-
     def goto_params(self, instance):
         self.manager.current = "params"
 
-    def update_values(self, dt):
-        # PLACEHOLDER VALUES (replace with real BMS data)
-        pack_voltage = 0.0
-        pack_current = 0.0
-        pack_temp = 0.0
-        soc = 0.0
-        cell_voltages = [0.0] * 16
+    def update_ui(self, data):
+        """
+        Example expected data format:
+        "PV:52.3,PC:10.5,T:32,SOC:80,C1:3.28,C2:3.29,...,C16:3.27"
+        """
 
-        self.pack_voltage.text = str(pack_voltage)
-        self.pack_current.text = str(pack_current)
-        self.pack_temp.text = str(pack_temp)
-        self.pack_soc.text = str(soc)
-        self.soc_bar.value = soc
+        try:
+            parts = data.split(",")
 
-        for i, cell in enumerate(self.cell_inputs):
-            cell.text = str(cell_voltages[i])
+            values = {}
+            for part in parts:
+                key, val = part.split(":")
+                values[key.strip()] = float(val.strip())
+
+            self.pack_voltage.text = str(values.get("PV", 0.0))
+            self.pack_current.text = str(values.get("PC", 0.0))
+            self.pack_temp.text = str(values.get("T", 0.0))
+            self.pack_soc.text = str(values.get("SOC", 0.0))
+
+            soc_val = values.get("SOC", 0.0)
+            self.soc_bar.value = soc_val
+
+            for i in range(16):
+                self.cell_inputs[i].text = str(values.get(f"C{i+1}", 0.0))
+
+        except Exception as e:
+            print("Data parse error:", e)
 
 
 # ================= PARAMETERS SCREEN =================
@@ -174,26 +162,58 @@ class ParamsScreen(Screen):
 
     def param_row(self, parent, name, default):
         box = BoxLayout(size_hint_y=None, height=70, spacing=12)
-
-        label = Label(
-            text=name,
-            font_size=22
-        )
-
-        ti = TextInput(
-            text=str(default),
-            multiline=False,
-            font_size=26
-        )
-
+        label = Label(text=name, font_size=22)
+        ti = TextInput(text=str(default), multiline=False, font_size=26)
         box.add_widget(label)
         box.add_widget(ti)
         parent.add_widget(box)
-
         return ti
 
     def goto_dashboard(self, instance):
         self.manager.current = "dashboard"
+
+
+# ================= BLUETOOTH CLASS =================
+class BluetoothReader:
+
+    def __init__(self, dashboard):
+        self.dashboard = dashboard
+        self.socket = None
+        self.running = False
+
+    def connect(self, mac_address):
+        adapter = BluetoothAdapter.getDefaultAdapter()
+        device = adapter.getRemoteDevice(mac_address)
+
+        # Standard SPP UUID
+        spp_uuid = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+
+        self.socket = device.createRfcommSocketToServiceRecord(spp_uuid)
+        adapter.cancelDiscovery()
+        self.socket.connect()
+
+        self.running = True
+        threading.Thread(target=self.read_loop, daemon=True).start()
+
+        print("Bluetooth Connected!")
+
+    def read_loop(self):
+        input_stream = self.socket.getInputStream()
+        buffer = bytearray(1024)
+
+        while self.running:
+            bytes_read = input_stream.read(buffer)
+            if bytes_read > 0:
+                received_data = buffer[:bytes_read].decode("utf-8").strip()
+                print("Received:", received_data)
+
+                # Update UI in main thread
+                Clock.schedule_once(lambda dt: self.dashboard.update_ui(received_data))
+
+    def stop(self):
+        self.running = False
+        if self.socket:
+            self.socket.close()
 
 
 # ================= APP =================
@@ -202,16 +222,28 @@ class BMSApp(App):
     def build(self):
         sm = ScreenManager()
 
-        dashboard = DashboardScreen(name="dashboard")
-        dashboard.build_ui()
+        self.dashboard = DashboardScreen(name="dashboard")
+        self.dashboard.build_ui()
 
-        params = ParamsScreen(name="params")
-        params.build_ui()
+        self.params = ParamsScreen(name="params")
+        self.params.build_ui()
 
-        sm.add_widget(dashboard)
-        sm.add_widget(params)
+        sm.add_widget(self.dashboard)
+        sm.add_widget(self.params)
+
+        # Start Bluetooth after app loads
+        Clock.schedule_once(self.start_bluetooth, 2)
 
         return sm
+
+    def start_bluetooth(self, dt):
+        try:
+            mac = "00:11:22:33:44:55"   # 🔥 replace with your BMS Bluetooth MAC address
+            self.bt = BluetoothReader(self.dashboard)
+            self.bt.connect(mac)
+
+        except Exception as e:
+            print("Bluetooth connection error:", e)
 
 
 if __name__ == "__main__":
