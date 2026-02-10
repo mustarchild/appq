@@ -13,22 +13,26 @@ from kivy.uix.screenmanager import ScreenManager, Screen
 class DashboardScreen(Screen):
 
     def build_ui(self):
-        main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        main_layout = BoxLayout(
+            orientation='vertical',
+            padding=15,
+            spacing=12
+        )
 
         # ---------- Top Bar ----------
-        top_layout = BoxLayout(size_hint_y=None, height=75, spacing=10)
+        top_layout = BoxLayout(size_hint_y=None, height=90, spacing=15)
 
         menu_button = Button(
             text="Set Parameters",
             size_hint=(None, None),
-            size=(200, 75),
-            font_size=20
+            size=(240, 85),
+            font_size=24
         )
         menu_button.bind(on_press=self.goto_params)
 
         title = Label(
             text="16S BMS DASHBOARD",
-            font_size=34,
+            font_size=40,
             bold=True
         )
 
@@ -38,13 +42,20 @@ class DashboardScreen(Screen):
 
         # ---------- Pack Parameters ----------
         def create_param(label_text):
-            layout = BoxLayout(size_hint_y=None, height=55, spacing=10)
-            label = Label(text=label_text, font_size=18, bold=True)
+            layout = BoxLayout(size_hint_y=None, height=70, spacing=15)
+
+            label = Label(
+                text=label_text,
+                font_size=22,
+                bold=True
+            )
+
             value = TextInput(
                 readonly=True,
-                font_size=26,
+                font_size=30,
                 text="0.0"
             )
+
             layout.add_widget(label)
             layout.add_widget(value)
             main_layout.add_widget(layout)
@@ -56,38 +67,49 @@ class DashboardScreen(Screen):
         self.pack_soc = create_param("State of Charge (%)")
 
         # ---------- SOC Progress ----------
-        self.soc_bar = ProgressBar(max=100, size_hint_y=None, height=25)
+        self.soc_bar = ProgressBar(max=100, size_hint_y=None, height=35)
         self.soc_bar.value = 0
         main_layout.add_widget(self.soc_bar)
 
         # ---------- Cell Voltages ----------
         cell_title = Label(
             text="Cell Voltages (16S)",
-            font_size=26,
+            font_size=30,
             bold=True,
             size_hint_y=None,
-            height=40
+            height=50
         )
         main_layout.add_widget(cell_title)
 
-        grid = GridLayout(cols=2, spacing=10, size_hint_y=None)
+        grid = GridLayout(cols=2, spacing=12, size_hint_y=None)
         grid.bind(minimum_height=grid.setter('height'))
         self.cell_inputs = []
 
         for i in range(1, 17):
-            cell_box = BoxLayout(size_hint_y=None, height=50, spacing=5)
-            label = Label(text=f"Cell {i}", font_size=16, bold=True)
+            cell_box = BoxLayout(size_hint_y=None, height=65, spacing=10)
+
+            label = Label(
+                text=f"Cell {i}",
+                font_size=20,
+                bold=True
+            )
+
             value = TextInput(
                 readonly=True,
-                font_size=22,
+                font_size=26,
                 text="0.000"
             )
+
             cell_box.add_widget(label)
             cell_box.add_widget(value)
             grid.add_widget(cell_box)
             self.cell_inputs.append(value)
 
         main_layout.add_widget(grid)
+
+        # ✅ This pushes everything UP
+        main_layout.add_widget(Label(size_hint_y=1))
+
         self.add_widget(main_layout)
 
         # Update loop (real data can be placed here later)
@@ -141,8 +163,8 @@ class ParamsScreen(Screen):
         back_btn = Button(
             text="Back to Dashboard",
             size_hint_y=None,
-            height=65,
-            font_size=22
+            height=70,
+            font_size=24
         )
         back_btn.bind(on_press=self.goto_dashboard)
         root.add_widget(back_btn)
@@ -151,16 +173,23 @@ class ParamsScreen(Screen):
         self.add_widget(root)
 
     def param_row(self, parent, name, default):
-        box = BoxLayout(size_hint_y=None, height=60, spacing=10)
-        label = Label(text=name, font_size=18)
+        box = BoxLayout(size_hint_y=None, height=70, spacing=12)
+
+        label = Label(
+            text=name,
+            font_size=22
+        )
+
         ti = TextInput(
             text=str(default),
             multiline=False,
-            font_size=24
+            font_size=26
         )
+
         box.add_widget(label)
         box.add_widget(ti)
         parent.add_widget(box)
+
         return ti
 
     def goto_dashboard(self, instance):
