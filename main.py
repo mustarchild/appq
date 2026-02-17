@@ -13,7 +13,6 @@ import threading
 
 
 BluetoothAdapter = autoclass("android.bluetooth.BluetoothAdapter")
-BluetoothDevice = autoclass("android.bluetooth.BluetoothDevice")
 UUID = autoclass("java.util.UUID")
 
 
@@ -98,7 +97,9 @@ class DashboardScreen(Screen):
     def update_ui(self, data):
         """
         Example expected data format:
-        "PV:52.3,PC:10.5,T:32,SOC:80,C1:3.28,C2:3.29,...,C16:3.27"
+        PV:52.3,PC:10.5,T:32,SOC:80,
+        C1:3.28,C2:3.29,...,C16:3.27,
+        UV:2.80,OV:4.20,UC:-50,OC:100
         """
 
         try:
@@ -106,9 +107,11 @@ class DashboardScreen(Screen):
 
             values = {}
             for part in parts:
-                key, val = part.split(":")
-                values[key.strip()] = float(val.strip())
+                if ":" in part:
+                    key, val = part.split(":")
+                    values[key.strip()] = float(val.strip())
 
+            # Dashboard values
             self.pack_voltage.text = str(values.get("PV", 0.0))
             self.pack_current.text = str(values.get("PC", 0.0))
             self.pack_temp.text = str(values.get("T", 0.0))
@@ -119,6 +122,10 @@ class DashboardScreen(Screen):
 
             for i in range(16):
                 self.cell_inputs[i].text = str(values.get(f"C{i+1}", 0.0))
+
+            # 🔥 Update Parameters Screen values also
+            params_screen = self.manager.get_screen("params")
+            params_screen.update_params(values)
 
         except Exception as e:
             print("Data parse error:", e)
@@ -172,6 +179,17 @@ class ParamsScreen(Screen):
     def goto_dashboard(self, instance):
         self.manager.current = "dashboard"
 
+    # 🔥 Update protection parameters from Bluetooth
+    def update_params(self, values):
+        if "UV" in values:
+            self.uv.text = str(values["UV"])
+        if "OV" in values:
+            self.ov.text = str(values["OV"])
+        if "UC" in values:
+            self.uc.text = str(values["UC"])
+        if "OC" in values:
+            self.oc.text = str(values["OC"])
+
 
 # ================= BLUETOOTH CLASS =================
 class BluetoothReader:
@@ -202,13 +220,18 @@ class BluetoothReader:
         buffer = bytearray(1024)
 
         while self.running:
-            bytes_read = input_stream.read(buffer)
-            if bytes_read > 0:
-                received_data = buffer[:bytes_read].decode("utf-8").strip()
-                print("Received:", received_data)
+            try:
+                bytes_read = input_stream.read(buffer)
+                if bytes_read > 0:
+                    received_data = buffer[:bytes_read].decode("utf-8").strip()
+                    print("Received:", received_data)
 
-                # Update UI in main thread
-                Clock.schedule_once(lambda dt: self.dashboard.update_ui(received_data))
+                    # Update UI in main thread
+                    Clock.schedule_once(lambda dt: self.dashboard.update_ui(received_data))
+
+            except Exception as e:
+                print("Bluetooth read error:", e)
+                self.running = False
 
     def stop(self):
         self.running = False
@@ -244,6 +267,11 @@ class BMSApp(App):
 
         except Exception as e:
             print("Bluetooth connection error:", e)
+
+    def on_stop(self):
+        # Stop Bluetooth when app closes
+        if hasattr(self, "bt"):
+            self.bt.stop()
 
 
 if __name__ == "__main__":
